@@ -20,7 +20,6 @@ figures_folder = output_folder / "figures"
 
 theme = Theme()
 Theme.apply_global()
-print("Test")
 # -----------------------------
 # Functions
 # -----------------------------
@@ -162,7 +161,7 @@ def run_scenario_projections(
 if __name__ == "__main__":
     # Process only "Amount_Of_Pelts_Produced_Per_MS"
     indicators_of_interest = [
-        "Amount_Of_Pelts_Produced_Per_MS", "Amount_Fur_Companies_Per_MS"
+        "Amount_Of_Pelts_Produced_Per_MS", "Amount_Fur_Companies_Per_MS", "ID28"
     ]
     
     # Set to True to perform both projection and figures generation
