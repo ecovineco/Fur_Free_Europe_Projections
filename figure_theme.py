@@ -1,44 +1,61 @@
 # figure_theme.py
 import matplotlib.pyplot as plt
-from cycler import cycler
+import matplotlib.ticker as ticker
 
 class Theme:
-    FIG_SIZE = (10, 6)
-    TITLE_SIZE = 16
-    LABEL_SIZE = 14
-    TICK_SIZE = 12
-    LEGEND_SIZE = 12
-    LINE_WIDTH = 2
-
-    # Define species colors globally here
-    COLORS = {
-        "Mink": "#1f77b4",
-        "Chinchilla": "#ff7f0e",
-        "Raccoon dog": "#2ca02c",
-        "Fox": "#d62728",
-        "All species": "#9467bd",  # not used in per-country plots
-        "default": "#1f77b4"
-    }
-
+    """
+    Centralized theme configuration. 
+    Everything is contained within apply_global to match the requested visual style.
+    """
+    
     @staticmethod
     def apply_global():
         """
-        Apply global styling: figure size, font sizes, grid, line width,
-        and species-specific colors that are automatically used in plots.
+        Apply all global styling, grid settings, and axis formatting in one place.
         """
-        # Create a color cycle that repeats species colors in a fixed order
-        species_order = ["Mink", "Chinchilla", "Raccoon dog", "Fox", "All species"]
-        color_cycle = [Theme.COLORS.get(s, Theme.COLORS["default"]) for s in species_order]
-
+        # 1. Base RC Parameters for the "Curve Style"
         plt.rcParams.update({
-            "figure.figsize": Theme.FIG_SIZE,
-            "axes.titlesize": Theme.TITLE_SIZE,
-            "axes.labelsize": Theme.LABEL_SIZE,
-            "xtick.labelsize": Theme.TICK_SIZE,
-            "ytick.labelsize": Theme.TICK_SIZE,
-            "legend.fontsize": Theme.LEGEND_SIZE,
-            "lines.linewidth": Theme.LINE_WIDTH,
-            "axes.prop_cycle": cycler(color=color_cycle),
-            "grid.linestyle": "--",
-            "grid.linewidth": 0.5
+            # Figure size and Fonts
+            "figure.figsize": (10, 6),
+            "font.family": "sans-serif",
+            "axes.titlesize": 14,
+            "axes.titleweight": "bold", # Bold title like in the example
+            "axes.labelsize": 12,
+            
+            # Line and Marker style (The "Curves" and "Balls")
+            "lines.linewidth": 3,     # Thickness of the curve
+            "lines.marker": "o",        # The "Balls" (circular markers)
+            "lines.markersize": 5,      # Size of the "Balls"
+            
+            # Grid style (The light background grid)
+            "axes.grid": True,
+            "grid.color": "#E6E6E6",    # Light gray color for the lines
+            "grid.linestyle": "-",      # Solid grid lines
+            "grid.linewidth": 1.0,
+            "axes.axisbelow": True,     # Puts grid behind the curves
+            
+            # Spines (The "Box" around the plot)
+            "axes.spines.top": False,   # Remove top border
+            "axes.spines.right": False, # Remove right border
+            
+            # Legend style
+            "legend.fontsize": 10,
+            "legend.frameon": False,    # Remove box around legend
+            
+            # Tick labels
+            "xtick.labelsize": 10,
+            "ytick.labelsize": 10,
         })
+
+        # 2. Advanced Axis Formatting (Using Hooks)
+        # We use a 'callback' to apply number formatting and rotation automatically 
+        # to every axis created after this function is called.
+        def setup_axis(ax):
+            # Y-Axis: Number format (adds commas: e.g., 4,000 instead of 4000)
+            ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
+            
+            # X-Axis: Label rotation (45-degree angle for years)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+        # This tells matplotlib to run 'setup_axis' every time a new plot is made
+        plt.gcf().add_axobserver(setup_axis)
