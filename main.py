@@ -19,7 +19,8 @@ output_file = output_folder / "projected_data.xlsx"
 figures_folder = output_folder / "figures"
 
 theme = Theme()
-
+Theme.apply_global()
+print("Test")
 # -----------------------------
 # Functions
 # -----------------------------
@@ -117,7 +118,7 @@ def generate_figures(indicator, df_proj, projection_log):
 
         fig_func_name = f"make_figures_{scenario}"
         if hasattr(mod, fig_func_name):
-            getattr(mod, fig_func_name)(df_proj, theme=theme)
+            getattr(mod, fig_func_name)(df_proj)
             print(f"[INFO] Figures generated for {indicator}")
 
 # -----------------------------

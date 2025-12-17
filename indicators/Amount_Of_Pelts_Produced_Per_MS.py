@@ -100,13 +100,11 @@ def run_projection_S1(df):
 
     return pelts_proj
 
-# -----------------------------
-# Figure generation for scenario S1
-# -----------------------------
-def make_figures_S1(df_proj, theme=None):
+def make_figures_S1(df_proj):
     """
-    Generate plots per species and EU totals.
-    Requires df_proj to include historical + projected years (2010–2040).
+    Generate plots per country and EU totals.
+    Uses fixed species colors for consistency.
+    No log scale.
     """
     if df_proj.empty:
         return
@@ -114,35 +112,59 @@ def make_figures_S1(df_proj, theme=None):
     figures_folder = Path("data/output/S1_output/figures")
     figures_folder.mkdir(parents=True, exist_ok=True)
 
-    # 1. Per species: curves per country
-    for spec in df_proj['Species'].unique():
-        df_spec = df_proj[df_proj['Species']==spec].groupby(['Year','MS'], as_index=False)['Pelts'].sum()
-        df_pivot = df_spec.pivot(index='Year', columns='MS', values='Pelts').fillna(0)
-        if df_pivot.sum().sum()==0:
-            continue
-        plt.figure(figsize=(10,6))
-        for ms in df_pivot.columns:
-            plt.plot(df_pivot.index, df_pivot[ms], label=ms)
-        plt.title(f"Amount_Of_Pelts_Produced_Per_MS_{spec}_per_country")
-        plt.xlabel("Year")
-        plt.ylabel("Number of Pelts")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(figures_folder / f"Amount_Of_Pelts_Produced_Per_MS_{spec}_per_country.png")
-        plt.close()
+    # Fixed species colors
+    species_colors = {
+        "Mink": "#1f77b4",
+        "Chinchilla": "#ff7f0e",
+        "Raccoon dog": "#2ca02c",
+        "Fox": "#d62728",
+        "All species": "#9467bd"
+    }
 
-    # 2. EU totals per species
+    # -----------------------------
+    # 1. Per country
+    # -----------------------------
+    for ms in df_proj['MS'].unique():
+
+        df_ms = df_proj[df_proj['MS'] == ms].groupby(['Year','Species'], as_index=False)['Pelts'].sum()
+        df_pivot = df_ms.pivot(index='Year', columns='Species', values='Pelts').fillna(0)
+        if df_pivot.sum().sum() == 0:
+            continue
+
+        fig, ax = plt.subplots()
+        for spec in df_pivot.columns:
+            if df_pivot[spec].sum() > 0:
+                color = species_colors.get(spec, "#1f77b4")  # default if species not in dict
+                ax.plot(df_pivot.index, df_pivot[spec], label=spec, color=color)
+
+        ax.set_title(f"Amount_Of_Pelts_Produced_Per_{ms}_per_species")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Number of Pelts")
+        ax.legend()
+        ax.grid(True, linestyle="--", linewidth=0.5)
+
+        fig.tight_layout()
+        fig.savefig(figures_folder / f"Amount_Of_Pelts_Produced_Per_{ms}_per_species.png")
+        plt.close(fig)
+
+    # -----------------------------
+    # 2. EU totals
+    # -----------------------------
     df_eu = df_proj.groupby(['Year','Species'], as_index=False)['Pelts'].sum()
     df_eu_pivot = df_eu.pivot(index='Year', columns='Species', values='Pelts').fillna(0)
-    plt.figure(figsize=(10,6))
+
+    fig, ax = plt.subplots()
     for spec in df_eu_pivot.columns:
-        plt.plot(df_eu_pivot.index, df_eu_pivot[spec], label=spec)
-    plt.title("Amount_Of_Pelts_Produced_Per_MS_EU_total_per_species")
-    plt.xlabel("Year")
-    plt.ylabel("Number of Pelts")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(figures_folder / "Amount_Of_Pelts_Produced_Per_MS_EU_total_per_species.png")
-    plt.close()
+        if df_eu_pivot[spec].sum() > 0:
+            color = species_colors.get(spec, "#1f77b4")
+            ax.plot(df_eu_pivot.index, df_eu_pivot[spec], label=spec, color=color)
+
+    ax.set_title("Amount_Of_Pelts_Produced_Per_MS_EU_total_per_species")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Number of Pelts")
+    ax.legend()
+    ax.grid(True, linestyle="--", linewidth=0.5)
+
+    fig.tight_layout()
+    fig.savefig(figures_folder / "Amount_Of_Pelts_Produced_Per_MS_EU_total_per_species.png")
+    plt.close(fig)
