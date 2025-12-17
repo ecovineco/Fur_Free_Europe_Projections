@@ -15,40 +15,40 @@ def run_projection_S1(df):
 
     Returns:
         pd.DataFrame: A combined DataFrame of historical and projected data (2010–2040)
-            with columns ["MS", "Species", "Year", "Pelts"].
+            with columns ["Country", "Species", "Year", "Pelts"].
     """
     if df.empty:
-        return pd.DataFrame(columns=['MS', 'Species', 'Year', 'Pelts'])
+        return pd.DataFrame(columns=['Country', 'Species', 'Year', 'Pelts'])
 
     # --- 1. Data Cleaning and Preparation ---
-    pelts_data = df.rename(columns={"Country": "MS", "Produced_Pelts_Number": "Pelts"})
+    pelts_data = df.rename(columns={"Country": "Country", "Produced_Pelts_Number": "Pelts"})
     pelts_data["Year"] = pelts_data["Year"].astype(int)
     pelts_data["Pelts"] = pd.to_numeric(pelts_data["Pelts"], errors='coerce').fillna(0)
     
     # Filter out aggregate rows and keep only individual species
-    pelts_data = pelts_data[pelts_data["Species"] != "All species"][['MS', 'Year', 'Species', 'Pelts']]
+    pelts_data = pelts_data[pelts_data["Species"] != "All species"][['Country', 'Year', 'Species', 'Pelts']]
 
     # Ensure a complete grid for 2010–2024 (filling missing observations with 0)
     historical_years = np.arange(2010, 2025)
-    member_states = pelts_data['MS'].unique()
+    member_states = pelts_data['Country'].unique()
     species_list = pelts_data['Species'].unique()
     
     complete_historical_records = []
     for ms in member_states:
         for species in species_list:
-            subset = pelts_data[(pelts_data['MS'] == ms) & (pelts_data['Species'] == species)]
+            subset = pelts_data[(pelts_data['Country'] == ms) & (pelts_data['Species'] == species)]
             for year in historical_years:
                 # Extract value if year exists, otherwise default to 0
                 val = subset.loc[subset['Year'] == year, 'Pelts'].iloc[0] if year in subset['Year'].values else 0
-                complete_historical_records.append({'MS': ms, 'Species': species, 'Year': year, 'Pelts': val})
+                complete_historical_records.append({'Country': ms, 'Species': species, 'Year': year, 'Pelts': val})
     
     historical_df = pd.DataFrame(complete_historical_records)
 
     # --- 2. Projection Logic ---
     def apply_projection_rules(group_df):
-        """Applies MS-specific legal bans or CAGR trends to a single MS/Species group."""
+        """Applies Country-specific legal bans or CAGR trends to a single Country/Species group."""
         group_df = group_df.sort_values('Year')
-        ms_name = group_df['MS'].iloc[0]
+        ms_name = group_df['Country'].iloc[0]
         species_name = group_df['Species'].iloc[0]
         last_observed_pelt_count = group_df['Pelts'].iloc[-1]
         projection_years = np.arange(2025, 2041)
@@ -58,19 +58,19 @@ def run_projection_S1(df):
             projected_values = np.zeros_like(projection_years)
 
         # B: Lithuania (LT) - Phase out by 2027
-        elif ms_name == "Lithuania" and species_name in ["mink", "chinchilla"]:
+        elif ms_name == "Lithuania" and species_name in ["Mink", "Chinchilla"]:
             base_val = group_df.loc[group_df['Year'] == 2024, 'Pelts'].iloc[0] if 2024 in group_df['Year'].values else last_observed_pelt_count
             projected_values = np.array([base_val, 0.5 * base_val] + [0] * (len(projection_years) - 2))
 
         # C: Latvia (LV) - Phase out by 2028
-        elif ms_name == "Latvia" and species_name == "mink":
+        elif ms_name == "Latvia" and species_name == "Mink":
             base_val = group_df.loc[group_df['Year'] == 2024, 'Pelts'].iloc[0] if 2024 in group_df['Year'].values else last_observed_pelt_count
             projected_values = np.array([base_val, (2/3) * base_val, (1/3) * base_val] + [0] * (len(projection_years) - 3))
         elif ms_name == "Latvia" and species_name != "mink":
             projected_values = np.zeros_like(projection_years)
 
         # D: Romania (RO) - Phase out by 2027
-        elif ms_name == "Romania" and species_name in ["mink", "chinchilla"]:
+        elif ms_name == "Romania" and species_name in ["Mink", "Chinchilla"]:
             base_val = group_df.loc[group_df['Year'] == 2024, 'Pelts'].iloc[0] if 2024 in group_df['Year'].values else last_observed_pelt_count
             projected_values = np.array([base_val, 0.5 * base_val] + [0] * (len(projection_years) - 2))
 
@@ -109,7 +109,7 @@ def run_projection_S1(df):
                 projected_values = np.array([last_observed_pelt_count * (1 + clamped_rate)**(yr - 2024) for yr in projection_years])
 
         future_df = pd.DataFrame({
-            'MS': ms_name, 
+            'Country': ms_name, 
             'Species': species_name, 
             'Year': projection_years, 
             'Pelts': projected_values
@@ -117,7 +117,17 @@ def run_projection_S1(df):
         return pd.concat([group_df, future_df], ignore_index=True)
 
     # Apply projection logic per group
-    final_projection = historical_df.groupby(['MS', 'Species'], group_keys=False).apply(apply_projection_rules).reset_index(drop=True)
+    final_projection = historical_df.groupby(['Country', 'Species'], group_keys=False).apply(apply_projection_rules).reset_index(drop=True)
+    
+    # --- 3. Aggregate "All Species" total ---
+    # Sum the pelts across all species for each Country and Year
+    agg_total = final_projection.groupby(['Country', 'Year'], as_index=False)['Pelts'].sum()
+    agg_total['Species'] = 'All Species'
+    
+    # Append the aggregate rows to the final dataframe
+    final_projection = pd.concat([final_projection, agg_total], ignore_index=True)
+
+    
     return final_projection
 
 def make_figures_S1(df_proj):
@@ -142,12 +152,12 @@ def make_figures_S1(df_proj):
         "Chinchilla": "#ff7f0e",
         "Raccoon dog": "#2ca02c",
         "Fox": "#d62728",
-        "All species": "#9467bd"
+        "All Species": "#9467bd"
     }
 
     # --- 1. Generate Individual Member State Plots ---
-    for ms in df_proj['MS'].unique():
-        ms_data = df_proj[df_proj['MS'] == ms].groupby(['Year', 'Species'], as_index=False)['Pelts'].sum()
+    for ms in df_proj['Country'].unique():
+        ms_data = df_proj[df_proj['Country'] == ms].groupby(['Year', 'Species'], as_index=False)['Pelts'].sum()
         
         # Filtering logic: Only plot if at least one species has production > 0 after 2024
         post_2024_data = ms_data[ms_data['Year'] > 2024]
@@ -158,6 +168,8 @@ def make_figures_S1(df_proj):
         
         fig, ax = plt.subplots()
         for species in pivot_data.columns:
+            if species=="All Species":
+                continue
             if pivot_data[species].sum() > 0:
                 # Plotting values in thousands
                 ax.plot(
@@ -167,7 +179,7 @@ def make_figures_S1(df_proj):
                     color=SPECIES_COLORS.get(species, "#1f77b4")
                 )
 
-        ax.set_title(f"Total Pelt Production in {ms} (in Thousands of Pelts)") 
+        ax.set_title(f"Projected Pelt Production in {ms} (in Thousands of Pelts)") 
         ax.set_xlabel("Year")
         ax.set_ylabel("Number of Pelts (Thousands)")
         ax.legend()

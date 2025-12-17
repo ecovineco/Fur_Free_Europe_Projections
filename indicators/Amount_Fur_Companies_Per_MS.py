@@ -1,211 +1,157 @@
+"""
+Python file for indicator: Amount_Fur_Companies_Per_MS
+Contains two public functions for scenario S1:
+- run_projection_S1(df)
+- make_figures_S1(df)
+"""
+
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from figure_theme import Theme
 
-# -----------------------------
-# Configuration Constants
-# -----------------------------
-# Derived from report: 44,700 ha / 4,700 farms in 2025 (approx 9.51 ha/farm)
-AREA_PER_FARM_HA = 9.51 
+# ---------------------------------------------------------
+# CONSTANTS & FILE PATHS
+# ---------------------------------------------------------
+OUTPUT_BASE_DIR = Path("data/output/S1_output")
+PROJECTED_DATA_FILE = OUTPUT_BASE_DIR / "projected_data.xlsx"
+PRODUCTION_SHEET = "Amount_Of_Pelts_Produced_Per_MS"
 
-def run_projection_S1(df):
+def run_projection_S1(df_historical):
     """
-    Projects the number of Fur Farms and Farm Area based on production trends.
-    
-    Methodology:
-    1. Farms(t) evolves proportionally to Production(t) relative to 2024.
-    2. Farm Area(t) = Farms(t) * Average Area Per Farm (9.51 ha).
-
-    Args:
-        df (pd.DataFrame): Input data with columns:
-            ["Country", "Fur Industry Sector", "Species", "Year", "Number of Farms", "Source"]
-
-    Returns:
-        pd.DataFrame: Projected data with columns:
-            ["MS", "Species", "Year", "Farms", "Farm Area (ha)"]
+    Projects the number of fur farms based on the proportional decline of pelt production.
     """
-    # -----------------------------
-    # 1. Load and Prepare Input Data
-    # -----------------------------
-    if df.empty:
-        return pd.DataFrame()
+    if not PROJECTED_DATA_FILE.exists():
+        raise FileNotFoundError(f"Could not find {PROJECTED_DATA_FILE}.")
 
-    # Filter for specific sector and species as requested
-    df = df[
-        (df["Fur Industry Sector"] == "Fur Farming") & 
-        (df["Species"] == "All species")
+    # Load production driver
+    df_production = pd.read_excel(PROJECTED_DATA_FILE, sheet_name=PRODUCTION_SHEET)
+
+    # Aggressively clean historical data to handle empty/whitespace cells in Sector
+    df_historical["Fur Industry Sector"] = df_historical["Fur Industry Sector"].fillna("Farming").astype(str).str.strip()
+    # Force any empty string or 'nan' to 'Farming' to ensure the filter works
+    df_historical.loc[df_historical["Fur Industry Sector"].isin(["", "nan"]), "Fur Industry Sector"] = "Farming"
+
+    # Filter Settings
+    target_sector = "Farming"
+    target_species = "All Species"
+
+    # Aggregate production per Country and Year using 'Pelts' header
+    df_prod_agg = df_production.groupby(["Country", "Year"], as_index=False)["Pelts"].sum()
+
+    # Filter historical farm data for 2024
+    df_farms_2024 = df_historical[
+        (df_historical["Year"] == 2024) & 
+        (df_historical["Fur Industry Sector"] == target_sector) & 
+        (df_historical["Species"] == target_species)
     ].copy()
 
-    # Rename columns for consistency
-    farms_hist = df.rename(columns={
-        "Country": "MS", 
-        "Number of Farms": "Farms"
-    })[["MS", "Species", "Year", "Farms"]]
+    projection_rows = []
+    future_years = range(2025, 2041)
 
-    # Ensure numeric types
-    farms_hist["Year"] = farms_hist["Year"].astype(int)
-    farms_hist["Farms"] = pd.to_numeric(farms_hist["Farms"], errors="coerce").fillna(0)
-
-    # Calculate Historical Area
-    farms_hist["Farm Area (ha)"] = farms_hist["Farms"] * AREA_PER_FARM_HA
-
-    # -----------------------------
-    # 2. Load Production Data (Driver)
-    # -----------------------------
-    # We need the production projections to calculate the trend ratio.
-    # Assumes "Amount_Of_Pelts_Produced_Per_MS" has already run.
-    prod_file = Path("data/output/S1_output/projected_data.xlsx")
-    if not prod_file.exists():
-        print(f"[WARNING] Production data not found at {prod_file}. Returning historical farms only.")
-        return farms_hist
-
-    try:
-        df_prod = pd.read_excel(prod_file, sheet_name="Amount_Of_Pelts_Produced_Per_MS")
-    except ValueError:
-        print("[WARNING] Sheet 'Amount_Of_Pelts_Produced_Per_MS' not found. Returning historical farms only.")
-        return farms_hist
-
-    # Filter production for "All species" to match our farms data
-    df_prod = df_prod[df_prod["Species"] == "All species"].copy()
-
-    # -----------------------------
-    # 3. Calculate Projections
-    # -----------------------------
-    projections = []
-    
-    # Iterate over each Member State present in the input data
-    for ms in farms_hist["MS"].unique():
-        # A. Get Baseline Farm Data (2024)
-        ms_farms = farms_hist[farms_hist["MS"] == ms]
-        if 2024 in ms_farms["Year"].values:
-            base_farms_2024 = ms_farms.loc[ms_farms["Year"] == 2024, "Farms"].iloc[0]
-        else:
-            # If 2024 is missing, use the last available year
-            base_farms_2024 = ms_farms.sort_values("Year")["Farms"].iloc[-1]
-
-        # B. Get Production Trend Data for this MS
-        ms_prod = df_prod[df_prod["MS"] == ms].sort_values("Year")
+    for _, row in df_farms_2024.iterrows():
+        country_name = row["Country"]
+        farms_count_2024 = row["Number of Farms"]
         
-        if ms_prod.empty or 2024 not in ms_prod["Year"].values:
-            # If no production data, assume 0 for future or flat? 
-            # Report implies proportional to production, so no production = no farms.
-            base_prod_2024 = 0
-        else:
-            base_prod_2024 = ms_prod.loc[ms_prod["Year"] == 2024, "Pelts"].iloc[0]
-
-        # C. Project 2025-2040
-        future_years = np.arange(2025, 2041)
+        ms_pelt_data = df_prod_agg[df_prod_agg["Country"] == country_name]
         
+        # Extract baseline pelts for 2024
+        baseline_series = ms_pelt_data.loc[ms_pelt_data["Year"] == 2024, "Pelts"]
+        pelts_2024 = baseline_series.item() if not baseline_series.empty else 0
+
         for year in future_years:
-            # Get production for year t
-            prod_t = ms_prod.loc[ms_prod["Year"] == year, "Pelts"].sum() if year in ms_prod["Year"].values else 0
-            
-            # Apply Formula: Farms_t = Farms_2024 * (Prod_t / Prod_2024)
-            if base_prod_2024 > 0:
-                ratio = prod_t / base_prod_2024
-                farms_t = base_farms_2024 * ratio
-            else:
-                farms_t = 0
-            
-            # Calculate Land Use: Area_t = Farms_t * AreaPerFarm
-            area_t = farms_t * AREA_PER_FARM_HA
+            future_series = ms_pelt_data.loc[ms_pelt_data["Year"] == year, "Pelts"]
+            pelts_future = future_series.item() if not future_series.empty else 0
 
-            projections.append({
-                "MS": ms,
-                "Species": "All species",
+            # Proportionality rule: projection based on pelt decline
+            if pelts_2024 > 0:
+                scale_ratio = pelts_future / pelts_2024
+                projected_farms = farms_count_2024 * scale_ratio
+            else:
+                projected_farms = 0
+
+            projection_rows.append({
+                "Country": country_name,
+                "Fur Industry Sector": "Farming", # Explicitly set to Farming
+                "Species": target_species,
                 "Year": year,
-                "Farms": farms_t,
-                "Farm Area (ha)": area_t
+                "Number of Farms": projected_farms
             })
 
-    # Combine History and Projections
-    df_proj = pd.DataFrame(projections)
-    final_df = pd.concat([farms_hist, df_proj], ignore_index=True).sort_values(["MS", "Year"])
+    # Combine historical and projection
+    df_projections = pd.DataFrame(projection_rows)
     
-    return final_df
-
-
-def make_figures_S1(df_proj):
-    """
-    Generates plots for Number of Farms and Farm Area (ha).
+    # Define and clean output headers as requested
+    output_headers = ["Country", "Fur Industry Sector", "Species", "Year", "Number of Farms"]
+    df_historical_clean = df_historical[output_headers].copy()
+    # Force Farming label on all historical rows as well
+    df_historical_clean["Fur Industry Sector"] = "Farming"
     
-    Outputs:
-    1. Per MS: Farms and Area (only if >0 after 2025).
-    2. EU Total: Farms and Area.
+    df_final = pd.concat([df_historical_clean, df_projections], ignore_index=True)
+    
+    return df_final[output_headers]
+
+def make_figures_S1(df_final):
     """
-    if df_proj.empty:
-        return
+    Generates time-series plots for the Number of Farms.
+    """
+    # Filter for the relevant data subset (All Species)
+    df_plot = df_final[
+        (df_final["Fur Industry Sector"] == "Farming") &
+        (df_final["Species"] == "All Species")
+    ]
 
-    output_dir = Path("data/output/S1_output/figures")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Color for "All species"
-    COLOR_ALL_SPECIES = "#9467bd" 
-
-    # -----------------------------
-    # 1. Plots Per Member State
-    # -----------------------------
-    for ms in df_proj["MS"].unique():
-        ms_data = df_proj[df_proj["MS"] == ms].sort_values("Year")
+    # --- Per Country Plots ---
+    unique_countries = df_plot["Country"].unique()
+    for country in unique_countries:
+        country_data = df_plot[df_plot["Country"] == country].sort_values("Year")
         
-        # Check if relevant: Production/Farms > 0 after 2025
-        post_2025 = ms_data[ms_data["Year"] > 2025]
-        if post_2025["Farms"].sum() <= 0:
+        # Only plot if there's projected activity after 2024
+        if not (country_data.loc[country_data["Year"] > 2024, "Number of Farms"] > 0).any():
             continue
 
-        # Plot A: Number of Farms
         fig, ax = plt.subplots()
-        # Divide by 1000 for "in thousands" if needed, but farms are often small numbers.
-        # However, to be consistent with requested style "in thousands":
-        ax.plot(ms_data["Year"], ms_data["Farms"] / 1000, color=COLOR_ALL_SPECIES, label="All species")
-        
-        ax.set_title(f"Number of Farms: {ms} (in thousands)")
-        ax.set_ylabel("Farms (Thousands)")
+        ax.plot(
+            country_data["Year"], 
+            country_data["Number of Farms"], 
+            label="All Species",
+            color=Theme.COLORS["All Species"]
+        )
+
+        ax.set_title(f"Projected Number of Fur Farms in {country}")
         ax.set_xlabel("Year")
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(output_dir / f"Amount_Fur_Farms_{ms}.png")
+        ax.set_ylabel("Number of Farms")
+        ax.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
+        ax.legend(loc="upper right")
+
+        # Save output
+        save_path = OUTPUT_BASE_DIR / "figures" / f"Amount_Fur_Companies_Per_MS_Farms_{country}.png"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
         plt.close(fig)
 
-        # Plot B: Farm Area
-        fig, ax = plt.subplots()
-        ax.plot(ms_data["Year"], ms_data["Farm Area (ha)"] / 1000, color=COLOR_ALL_SPECIES, label="All species")
+    # --- EU-27 Aggregate Plot ---
+    eu_total_series = df_plot.groupby("Year", as_index=False)["Number of Farms"].sum()
+    
+    if not eu_total_series.empty:
+        fig_eu, ax_eu = plt.subplots()
+        ax_eu.plot(
+            eu_total_series["Year"], 
+            eu_total_series["Number of Farms"], 
+            label="EU-27 Total",
+            color=Theme.COLORS["All Species"]
+        )
         
-        ax.set_title(f"Farm Area: {ms} (in thousands ha)")
-        ax.set_ylabel("Area (Thousands ha)")
-        ax.set_xlabel("Year")
-        ax.legend()
-        fig.tight_layout()
-        fig.savefig(output_dir / f"Amount_Fur_Farm_Area_{ms}.png")
-        plt.close(fig)
-
-    # -----------------------------
-    # 2. Plots for EU Total
-    # -----------------------------
-    eu_data = df_proj.groupby("Year")[["Farms", "Farm Area (ha)"]].sum().reset_index()
-
-    # Plot A: EU Total Farms
-    fig, ax = plt.subplots()
-    ax.plot(eu_data["Year"], eu_data["Farms"] / 1000, color=COLOR_ALL_SPECIES, label="All species")
-    
-    ax.set_title("Total EU Number of Farms (in thousands)")
-    ax.set_ylabel("Farms (Thousands)")
-    ax.set_xlabel("Year")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "Amount_Fur_Farms_EU_Total.png")
-    plt.close(fig)
-
-    # Plot B: EU Total Area
-    fig, ax = plt.subplots()
-    ax.plot(eu_data["Year"], eu_data["Farm Area (ha)"] / 1000, color=COLOR_ALL_SPECIES, label="All species")
-    
-    ax.set_title("Total EU Farm Area (in thousands ha)")
-    ax.set_ylabel("Area (Thousands ha)")
-    ax.set_xlabel("Year")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "Amount_Fur_Farm_Area_EU_Total.png")
-    plt.close(fig)
+        ax_eu.set_yscale('log')
+        # Add these three lines:
+        ax_eu.set_yticks([100,250,500, 1000, 2500, 5000, 10000])
+        ax_eu.get_yaxis().set_major_formatter(plt.ScalarFormatter())
+        ax_eu.get_yaxis().set_minor_formatter(plt.NullFormatter())
+        ax_eu.set_title("Projected Total Number of Fur Farms in the EU (All Species)")
+        ax_eu.set_xlabel("Year")
+        ax_eu.set_ylabel("Number of Farms")
+        ax_eu.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
+        ax_eu.legend(loc="upper right")
+        
+        plt.savefig(OUTPUT_BASE_DIR / "figures" / "Amount_Fur_Companies_Per_MS_Farms_EU_Total.png")
+        plt.close(fig_eu)

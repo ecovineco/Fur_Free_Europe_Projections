@@ -7,7 +7,14 @@ class Theme:
     Centralized theme configuration. 
     Everything is contained within apply_global to match the requested visual style.
     """
-    
+    COLORS = {
+        "Mink": "#1f77b4",         
+        "Chinchilla": "#ff7f0e",   
+        "Raccoon dog": "#2ca02c",  
+        "Fox": "#d62728",          
+        "All Species": "#9467bd",  
+        "default": "#7f7f7f"       
+    }
     @staticmethod
     def apply_global():
         """
