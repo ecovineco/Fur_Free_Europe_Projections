@@ -13,7 +13,7 @@ The project is implemented in **Python** and handles:
 
 ## 2. File Structure
 The project follows a strict directory hierarchy to ensure modularity:
-
+```bash
 project_root/
 │
 ├── data/
@@ -33,7 +33,7 @@ project_root/
 ├── init.py                          # Environment setup script
 ├── main.py                          # Primary execution workflow
 └── README.md                        # Documentation
-
+```
 ---
 
 ## 3. Getting Started: `init.py`
