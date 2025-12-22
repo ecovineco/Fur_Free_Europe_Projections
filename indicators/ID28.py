@@ -13,27 +13,29 @@ from figure_theme import Theme
 # ---------------------------------------------------------
 # CONSTANTS & FILE PATHS
 # ---------------------------------------------------------
-# We need the projected number of farms to drive this environmental indicator
 OUTPUT_BASE_DIR = Path("data/output/S1_output")
 PROJECTED_FARMS_FILE = OUTPUT_BASE_DIR / "projected_data.xlsx"
 FARMS_SHEET = "Amount_Fur_Companies_Per_MS"
 
+# Species specific colors for consistency
+SPECIES_COLORS = {
+    "Mink": "#1f77b4",
+    "Chinchilla": "#ff7f0e",
+    "Raccoon dog": "#2ca02c",
+    "Fox": "#d62728",
+    "All Species": "#9467bd"
+}
+
 def run_projection_S1(df_historical):
     """
-    Projects Agricultural Land Occupation based on the number of fur farms.
+    Projects Agricultural Land Occupation per species based on projected number of farms.
 
     Methodology:
     1. Calculate total EU land occupation for 'Feed' and 'Other farm inputs' in 2024.
     2. Calculate total EU fur farms in 2024.
     3. Derive a 'Land Occupation per Farm' coefficient (km2/farm).
-    4. Apply this coefficient to the projected number of farms for every Member State 
-       and year (2010-2040).
-
-    Args:
-        df_historical (pd.DataFrame): Input data from ID28 sheet.
-
-    Returns:
-        pd.DataFrame: Projected agricultural land occupation with headers matching input.
+    4. Apply this coefficient to the projected number of farms for every Member State,
+       species, and year (2010-2040).
     """
     # ---------------------------------------------------------
     # 1. Load Projected Farms Data (The Driver)
@@ -51,11 +53,8 @@ def run_projection_S1(df_historical):
     # ---------------------------------------------------------
     
     # A. Calculate Total Agricultural Land Occupation in EU (2024)
-    # Filter for specific inputs that drive land use
     target_sectors = ["Feed", "Other farm inputs"]
     
-    # Filter input dataframe for the baseline year and relevant sectors
-    # Assuming the input df contains EU aggregate data as shown in the screenshot
     land_data_2024 = df_historical[
         (df_historical["Year"] == 2024) &
         (df_historical["Species"] == "All Species") &
@@ -63,22 +62,18 @@ def run_projection_S1(df_historical):
         (df_historical["Environmental Metric"] == "Agricultural land occupation")
     ]
     
-    # Sum the 'Value' column (km2)
     total_agricultural_land_occupation = land_data_2024["Value"].sum()
     
     if total_agricultural_land_occupation == 0:
         print("[WARNING] Total Agricultural Land Occupation for 2024 is 0. Check input data.")
 
     # B. Calculate Total Number of Farms in EU (2024)
-    # We sum the farm counts across all Member States for 2024
+    # Filter for Farming sector and sum All Species to get the baseline divisor
     farms_2024_rows = df_farms[
         (df_farms["Year"] == 2024) &
-        (df_farms["Fur Industry Sector"] == "Farming") &
-        (df_farms["Species"] == "All Species")
+        (df_farms["Fur Industry Sector"] == "Farming")
     ]
     
-    # Ensure numerical stability
-    farms_2024_rows["Number of Farms"] = pd.to_numeric(farms_2024_rows["Number of Farms"], errors='coerce').fillna(0)
     total_farms_EU_2024 = farms_2024_rows["Number of Farms"].sum()
 
     # C. Calculate Coefficient (Land Occupation per Farm)
@@ -86,70 +81,57 @@ def run_projection_S1(df_historical):
         agricultural_land_occupation_per_farm = total_agricultural_land_occupation / total_farms_EU_2024
     else:
         agricultural_land_occupation_per_farm = 0
-        
-    # print(f"[INFO] Land Occ. Coeff: {agricultural_land_occupation_per_farm:.6f} km2/farm "
-    #       f"(Based on {total_agricultural_land_occupation} km2 / {total_farms_EU_2024} farms)")
 
     # ---------------------------------------------------------
-    # 3. Generate Projections (2010 - 2040)
+    # 3. Generate Projections (2010 - 2040) per Species
     # ---------------------------------------------------------
     projection_rows = []
     
-    # We iterate through the existing Farm Projections (which cover 2010-2040 and all MS)
-    # We filter for the "Farming" sector to get the farm count
+    # We iterate through the existing Farm Projections (species-specific)
     target_farm_data = df_farms[
         (df_farms["Fur Industry Sector"] == "Farming") &
-        (df_farms["Species"] == "All Species")
+        (df_farms["Species"].str.lower() != "All Species")
     ]
 
     for _, row in target_farm_data.iterrows():
         country = row["Country"]
         year = row["Year"]
+        species = row["Species"]
         n_farms = pd.to_numeric(row["Number of Farms"], errors='coerce') or 0
         
-        # Skip "European Union" aggregate rows if they exist in the farm file 
-        # (we build country-level data first)
         if country == "European Union":
             continue
 
-        # CALCULATION: Apply the coefficient
+        # Apply the global coefficient to specific species farm counts
         projected_land_value = n_farms * agricultural_land_occupation_per_farm
         
-        # Create output row matching the input file structure
+        # Create output row matching the output_headers structure exactly
         projection_rows.append({
             "Country": country,
-            "Environmental Metric": "Agricultural land occupation",
-            "Species": "All Species",
-            "Fur Industry Sector": "Farming",  # Attributed to the farming activity
+            "Environmental Metric": "Agricultural land occupation", # Added
+            "Species": species,
+            "Fur Industry Sector": "Farming",                   # Added
             "Value": projected_land_value,
-            "Metric Unit": "km2",
+            "Metric Unit": "km2",                                   # Changed from 'Unit'
             "Year": year
         })
 
-    # ---------------------------------------------------------
-    # 4. Format Output
-    # ---------------------------------------------------------
+
     df_projection = pd.DataFrame(projection_rows)
     
-    # Define required column order matching the screenshot
     output_headers = [
-        "Country", 
-        "Environmental Metric", 
-        "Species", 
-        "Fur Industry Sector", 
-        "Value", 
-        "Metric Unit", 
-        "Year"
+        "Country", "Environmental Metric", "Species", 
+        "Fur Industry Sector", "Value", "Metric Unit", "Year"
     ]
     
+    print(df_projection.columns) # Add this to see the available keys
     return df_projection[output_headers]
 
 
 def make_figures_S1(df_proj):
     """
     Generates figures for Agricultural Land Occupation.
-    1. Per Member State (km2 over time)
-    2. EU-27 Aggregate (km2 over time)
+    Plots individual species and an aggregated 'All Species' curve.
     """
     if df_proj.empty:
         return
@@ -158,68 +140,83 @@ def make_figures_S1(df_proj):
     output_figures_dir = OUTPUT_BASE_DIR / "figures"
     output_figures_dir.mkdir(parents=True, exist_ok=True)
 
-    # Filter strictly for the data we just generated
-    df_plot = df_proj[
-        (df_proj["Environmental Metric"] == "Agricultural land occupation") &
-        (df_proj["Species"] == "All Species")
-    ]
-
     # ---------------------------------------------------------
     # 1. Per Member State Plots
     # ---------------------------------------------------------
-    countries = df_plot["Country"].unique()
+    countries = df_proj["Country"].unique()
     
-    for country in countries:
-        ms_data = df_plot[df_plot["Country"] == country].sort_values("Year")
+    for ms in countries:
+        df_ms = df_proj[df_proj["Country"] == ms]
         
-        # Only plot if there is non-zero data after 2024
-        future_data = ms_data[ms_data["Year"] > 2024]
-        if future_data.empty or (future_data["Value"] <= 0).all():
+        # Calculate aggregate for plotting only
+        df_ms_agg = df_ms.groupby("Year")["Value"].sum().reset_index()
+        
+        # Only plot if there is activity after 2025
+        if df_ms_agg[df_ms_agg["Year"] > 2025]["Value"].sum() <= 0:
             continue
 
         fig, ax = plt.subplots()
-        
+
+        # A. Plot individual species
+        for spec in df_ms["Species"].unique():
+            df_spec = df_ms[df_ms["Species"] == spec].sort_values("Year")
+            if df_spec["Value"].sum() > 0:
+                ax.plot(
+                    df_spec["Year"], 
+                    df_spec["Value"], 
+                    label=spec,
+                    color=SPECIES_COLORS.get(spec, "#333333")
+                )
+
+        # B. Plot 'All Species' aggregate
         ax.plot(
-            ms_data["Year"], 
-            ms_data["Value"], 
+            df_ms_agg["Year"], 
+            df_ms_agg["Value"], 
             label="All Species",
-            color=Theme.COLORS["All Species"]
+            color=SPECIES_COLORS["All Species"],
+            linewidth=4,
+            alpha=0.7
         )
 
-        ax.set_title(f"Projected Agricultural Land Occupation of Fur Farming in {country} (in km2)")
-        ax.set_xlabel("Year")
+        ax.set_title(f"Projected Agricultural Land Occupation in {ms} (in km2)")
         ax.set_ylabel("Agricultural Land Occupation (km2)")
-        
-        # Format Y-axis with commas
-        ax.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.1f}'))
         ax.legend(loc="upper right")
         
-        plt.savefig(output_figures_dir / f"ID28_AgriculturalLandOccupation_{country}.png")
+        clean_ms = ms.replace(" ", "_")
+        plt.savefig(output_figures_dir / f"ID28_AgriculturalLandOccupation_{clean_ms}.png", bbox_inches='tight')
         plt.close(fig)
 
     # ---------------------------------------------------------
     # 2. EU Aggregate Plot
     # ---------------------------------------------------------
-    # Sum values across all countries for each year
-    eu_total = df_plot.groupby("Year", as_index=False)["Value"].sum()
+    df_eu_species = df_proj.groupby(["Year", "Species"])["Value"].sum().reset_index()
+    df_eu_total = df_proj.groupby("Year")["Value"].sum().reset_index()
     
-    if not eu_total.empty:
-        fig_eu, ax_eu = plt.subplots()
+    if not df_eu_total.empty and df_eu_total[df_eu_total["Year"] > 2025]["Value"].sum() > 0:
+        fig, ax = plt.subplots()
         
-        ax_eu.plot(
-            eu_total["Year"], 
-            eu_total["Value"], 
-            label="EU-27 Total",
-            color=Theme.COLORS["All Species"]
+        for spec in df_eu_species["Species"].unique():
+            df_spec = df_eu_species[df_eu_species["Species"] == spec].sort_values("Year")
+            if df_spec["Value"].sum() > 0:
+                ax.plot(
+                    df_spec["Year"], 
+                    df_spec["Value"], 
+                    label=spec,
+                    color=SPECIES_COLORS.get(spec, "#333333")
+                )
+
+        ax.plot(
+            df_eu_total["Year"], 
+            df_eu_total["Value"], 
+            label="EU-27 Total (All Species)",
+            color=SPECIES_COLORS["All Species"],
+            linewidth=4,
+            alpha=0.7
         )
         
-        ax_eu.set_title("Projected Agricultural Land Occupation of Fur Farming in EU (All Species)")
-        ax_eu.set_xlabel("Year")
-        ax_eu.set_ylabel("Agricultural Land Occupation (km2)")
+        ax.set_title("Projected Total Agricultural Land Occupation in EU")
+        ax.set_ylabel("Agricultural Land Occupation (km2)")
+        ax.legend(loc="upper right")
         
-        # Format Y-axis with commas
-        ax_eu.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
-        ax_eu.legend(loc="upper right")
-        
-        plt.savefig(output_figures_dir / "ID28_AgriculturalLandOccupation_EU_Total.png")
-        plt.close(fig_eu)
+        plt.savefig(output_figures_dir / "ID28_AgriculturalLandOccupation_EU_Total.png", bbox_inches='tight')
+        plt.close(fig)
