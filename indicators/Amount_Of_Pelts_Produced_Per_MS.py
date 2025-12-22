@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from sklearn.linear_model import TheilSenRegressor
 
 def run_projection_S1(df):
     """Calculates historical and projected pelt production per Member State and species.
@@ -98,14 +99,27 @@ def run_projection_S1(df):
             if len(active_years) < 2:
                 projected_values = np.full_like(projection_years, last_observed_pelt_count, dtype=float)
             else:
-                start_yr, end_yr = active_years['Year'].iloc[0], active_years['Year'].iloc[-1]
-                val_start, val_end = active_years['Pelts'].iloc[0], active_years['Pelts'].iloc[-1]
+                # start_yr, end_yr = active_years['Year'].iloc[0], active_years['Year'].iloc[-1]
+                # val_start, val_end = active_years['Pelts'].iloc[0], active_years['Pelts'].iloc[-1]
                 
-                # Compound Annual Growth Rate
-                cagr = (val_end / val_start)**(1 / (end_yr - start_yr)) - 1
-                # Cap the trend: maximum 20% decline, no growth allowed
+                # # Compound Annual Growth Rate
+                # cagr1 = (val_end / val_start)**(1 / (end_yr - start_yr)) - 1
+                # # Cap the trend: maximum 20% decline, no growth allowed
+                
+
+                # Theil-Sen Estimator ---
+                # We fit Theil-Sen on (Year, Log(Pelts)) to derive a robust CAGR
+                X = active_years[['Year']].values
+                y = np.log(active_years['Pelts'].values)
+
+                # Fit the robust regressor
+                model = TheilSenRegressor(random_state=42)
+                model.fit(X, y)
+                # Convert the log-slope back to a percentage rate: rate = e^slope - 1
+                cagr = np.exp(model.coef_[0]) - 1
+      
+                
                 clamped_rate = max(min(cagr, 0.0), -0.2)
-                
                 projected_values = np.array([last_observed_pelt_count * (1 + clamped_rate)**(yr - 2024) for yr in projection_years])
 
         future_df = pd.DataFrame({

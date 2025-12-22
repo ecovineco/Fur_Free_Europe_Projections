@@ -9,6 +9,6 @@ def run_projection_S1(df):
     # TODO: implement projection
     return df
 
-def make_figures_S1(df, theme=None):
+def make_figures_S1(df):
     # TODO: implement figures using df and theme
     pass
