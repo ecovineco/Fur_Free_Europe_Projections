@@ -59,7 +59,8 @@ class Theme:
         # to every axis created after this function is called.
         def setup_axis(ax):
             # Y-Axis: Number format (adds commas: e.g., 4,000 instead of 4000)
-            ax.yaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
+            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'{int(x):,}'))
+
             
             # X-Axis: Label rotation (45-degree angle for years)
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
