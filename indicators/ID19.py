@@ -261,38 +261,50 @@ def make_figures_S1(df):
     # ---------------------------------------------------------
     # 1. Stacked Bar Charts (All Sectors, All Species)
     # ---------------------------------------------------------
-    # Filter: All Species
+    # ---------------------------------------------------------
+    # 1. Stacked Bar Charts (Specific Sector Filtering)
+    # ---------------------------------------------------------
     df_all_spec = df_eu[df_eu["Species"] == "All Species"].copy()
 
     for col, suffix, ylabel in indicators:
         # Pivot: Index=Year, Columns=Sector, Values=Indicator
         pivot_df = df_all_spec.pivot_table(index="Year", columns="Fur Industry Sector", values=col, aggfunc="sum").fillna(0)
         
+        # --- LOGIC CHANGE: Filter Sectors based on Indicator ---
+        if suffix == "Quantity":
+            # For Quantity: Exclude "Feed" data (as requested, and noted in comments)
+            current_sectors = [s for s in TARGET_SECTORS if s != "Feed"]
+        
+        elif suffix in ["GVA", "Profit", "Tax_Returns"]:
+            # For GVA, Profit, Tax: Only show Farming and Auction
+            current_sectors = ["Farming", "Auction, agency"]
+            
+        else:
+            # For Value, Jobs: Show all target sectors
+            current_sectors = TARGET_SECTORS
+
+        # Reindex to enforce order and filter data
+        # Any sector not in 'current_sectors' is dropped; missing ones become 0
+        pivot_df = pivot_df.reindex(columns=current_sectors).dropna(axis=1, how='all').fillna(0)
+
         if pivot_df.sum().sum() == 0:
             continue
 
         fig, ax = plt.subplots()
         
-        # Plot stacked bar
-        # We use a distinct color map or manual colors if we had them per sector. 
-        # Using default matplotlib cycle for sectors.
+        # --- LOGIC CHANGE: Removed log=True ---
         pivot_df.plot(kind='bar', stacked=True, ax=ax, width=0.8)
 
-        ax.set_title(f"Projected EU Fur Industry {suffix} (All Sectors)")
+        ax.set_title(f"Projected EU Fur Industry {suffix}")
         ax.set_ylabel(ylabel)
         ax.set_xlabel("Year")
         ax.legend(title="Sector", bbox_to_anchor=(1.05, 1), loc='upper left')
         
-        # Reduce X-axis clutter (show every 5th year label if dense)
-        # Bar plots have categorical X-axis by default.
-        # Let's keep all years but ensure rotation
         plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
-        
-        # Format Y-Axis with commas
         ax.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
 
         plt.tight_layout()
-        plt.savefig(output_dir / f"Fur_Industry_{suffix}_Stacked.png")
+        plt.savefig(output_dir / f"ID19_Fur_Industry_{suffix}_Stacked.png")
         plt.close(fig)
 
     # ---------------------------------------------------------
@@ -331,5 +343,5 @@ def make_figures_S1(df):
             ax.get_yaxis().set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
             
             plt.tight_layout()
-            plt.savefig(output_dir / f"Farming_{suffix}_by_Species.png")
+            plt.savefig(output_dir / f"ID19_Farming_{suffix}_by_Species.png")
             plt.close(fig)
