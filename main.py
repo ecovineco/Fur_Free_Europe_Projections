@@ -161,7 +161,7 @@ def run_scenario_projections(
 if __name__ == "__main__":
     # Process only "Amount_Of_Pelts_Produced_Per_MS"
     indicators_of_interest = [
-        "Amount_Of_Pelts_Produced_Per_MS", "Amount_Fur_Companies_Per_MS", "ID28", "ID19"
+        "Amount_Of_Pelts_Produced_Per_MS", "Amount_Fur_Companies_Per_MS", "ID28", "ID19", "ID25", "ID26", "ID27"
     ]
     
     # Set to True to perform both projection and figures generation
