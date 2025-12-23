@@ -124,7 +124,6 @@ def run_projection_S1(df_historical):
         "Fur Industry Sector", "Value", "Metric Unit", "Year"
     ]
     
-    print(df_projection.columns) # Add this to see the available keys
     return df_projection[output_headers]
 
 
