@@ -59,6 +59,14 @@ TARGET_SECTORS = [
     "Retail sale"
 ]
 
+# Operating Costs per pelt (EUR) from Table A9
+OPERATING_COSTS = {
+    "Mink": 36.1,
+    "Fox": 87.2,
+    "Chinchilla": 25.3,
+    "Raccoon dog": 94.7
+}
+
 def run_projection_S1(df_input):
     """
     Projects economic indicators (Value, Jobs, Profit, etc.) for the Fur Industry.
@@ -178,15 +186,38 @@ def run_projection_S1(df_input):
             projection_rows.append(row_data)
 
             # --- C. Create Rows for Specific Species (Farming Only) ---
+            # --- C. Create Rows for Specific Species (Farming Only) ---
             if sector == "Farming":
-                # Get total values for this year (All Species) from the trajectory we just calculated
+                # Get total "All Species" values for this year (in Million €)
                 total_farming_vals = sector_trajectory[t]
                 total_prod_eu_t = get_total_pelts(t)
 
+                # --- NEW LOGIC: Calculate Total Cost Pool & Apportionment ---
+                # 1. Calculate Total Variable Cost Pool (Sum of Species Pelts * OC per pelt)
+                total_var_cost_pool = 0
+                species_var_costs = {}
+                
+                for species in FARMING_SPECIES:
+                    s_pelts = get_species_pelts(t, species)
+                    oc = OPERATING_COSTS.get(species, 0)
+                    
+                    # CostVar_Farming,s,t = OC_s * Prod_EU,s,t
+                    # Result is in raw EUR (not millions), but relative scale is what matters
+                    cost_var = s_pelts * oc
+                    species_var_costs[species] = cost_var
+                    total_var_cost_pool += cost_var
+                
+                # 2. Get Implied Total Cost (Million €) from Aggregate Accounts
+                # Total Cost = Value - Profit
+                val_total_m = total_farming_vals.get("Value (in million €)", 0)
+                prof_total_m = total_farming_vals.get("Profit (in million €)", 0)
+                implied_total_cost_million = val_total_m - prof_total_m
+
+                # 3. Generate Species Rows
                 for species in FARMING_SPECIES:
                     prod_eu_s_t = get_species_pelts(t, species)
                     
-                    # Calculate Share: Prod_s / Prod_Total
+                    # Share for general indicators (based on production volume)
                     share = prod_eu_s_t / total_prod_eu_t if total_prod_eu_t > 0 else 0
 
                     spec_row_data = {
@@ -196,17 +227,28 @@ def run_projection_S1(df_input):
                         "Year": t
                     }
                     
-                    # Apportion Indicators
-                    # Value, GVA, Profit, Tax, Quantity -> Proportional to Pelts (share)
-                    # Jobs -> Proportional to Value (which is proportional to share)
+                    # Apportion Standard Indicators
                     for ind_name in INDICATOR_MAPPING.keys():
                         total_val = total_farming_vals.get(ind_name, 0)
                         spec_row_data[ind_name] = total_val * share
                     
-                    # Recalculate Ratio for species (should be identical to Total if math holds, but calculated explicitly)
+                    # Recalculate Ratio
                     s_jobs = spec_row_data.get("Number of jobs", 0)
                     s_val = spec_row_data.get("Value (in million €)", 0)
                     spec_row_data["Ratio of FTE employment to sector turnover (€ million)"] = s_jobs / s_val if s_val != 0 else 0
+                    
+                    # --- NEW COLUMN: Operating Costs (in million €) ---
+                    # Cost_Farming,s,t = ScaleCost_t * CostVar_Farming,s,t
+                    # Equivalent to: ImpliedTotalCost * (SpeciesVarCost / TotalVarCostPool)
+                    s_var_cost = species_var_costs.get(species, 0)
+                    
+                    if total_var_cost_pool > 0:
+                        cost_share = s_var_cost / total_var_cost_pool
+                        allocated_cost = implied_total_cost_million * cost_share
+                    else:
+                        allocated_cost = 0
+                        
+                    spec_row_data["Operating Costs (in million €)"] = allocated_cost
                     
                     projection_rows.append(spec_row_data)
 
@@ -220,7 +262,7 @@ def run_projection_S1(df_input):
         "Produced Quantity (in tonnes)", "Value (in million €)", 
         "Ratio of FTE employment to sector turnover (€ million)", 
         "Number of jobs", "GVA (in million €)", "Profit (in million €)", 
-        "Tax Returns (in million €)"
+        "Tax Returns (in million €)", "Operating Costs (in million €)"
     ]
 
     if df_projection.empty:
